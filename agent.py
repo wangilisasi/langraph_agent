@@ -31,7 +31,7 @@ class AgentState(TypedDict):
 # https://openrouter.ai/models
 tools = [get_current_time, calculator, search_notes, word_counter]
 llm = ChatOpenAI(
-    model="openai/gpt-4o-mini",                  # OpenRouter model ID
+    model="openai/gpt-5-nano",                              # OpenRouter model ID
     base_url="https://openrouter.ai/api/v1",     # point to OpenRouter
     api_key=os.getenv("OPENROUTER_API_KEY"),      # use the OpenRouter key
     temperature=0,
