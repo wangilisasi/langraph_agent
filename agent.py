@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AnyMessage, SystemMessage
 from langgraph.graph import StateGraph, START, END
@@ -25,8 +26,16 @@ class AgentState(TypedDict):
 
 
 # ── Model ────────────────────────────────────────────────────────────────
+# OpenRouter is OpenAI-compatible, so we reuse ChatOpenAI with a different
+# base_url and api_key. You can swap the model to any on OpenRouter:
+# https://openrouter.ai/models
 tools = [get_current_time, calculator, search_notes, word_counter]
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatOpenAI(
+    model="openai/gpt-4o-mini",                  # OpenRouter model ID
+    base_url="https://openrouter.ai/api/v1",     # point to OpenRouter
+    api_key=os.getenv("OPENROUTER_API_KEY"),      # use the OpenRouter key
+    temperature=0,
+)
 llm_with_tools = llm.bind_tools(tools)          # let the LLM know about tools
 
 SYSTEM_PROMPT = SystemMessage(
