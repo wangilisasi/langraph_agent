@@ -13,7 +13,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from tools import get_current_time, calculator, search_notes
+from tools import get_current_time, calculator, search_notes, word_counter
 
 # ── State ────────────────────────────────────────────────────────────────
 # This TypedDict defines the data that flows through every node.
@@ -25,7 +25,7 @@ class AgentState(TypedDict):
 
 
 # ── Model ────────────────────────────────────────────────────────────────
-tools = [get_current_time, calculator, search_notes]
+tools = [get_current_time, calculator, search_notes, word_counter]
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 llm_with_tools = llm.bind_tools(tools)          # let the LLM know about tools
 

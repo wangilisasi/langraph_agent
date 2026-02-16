@@ -2,7 +2,8 @@
 
 import datetime
 import math
-from langchain_core.tools import tool
+from langchain_core.tools import tool, BaseTool
+from pydantic import BaseModel, Field
 
 
 @tool
@@ -53,3 +54,33 @@ def search_notes(query: str) -> str:
     }
     results = [v for k, v in notes.items() if query.lower() in k.lower()]
     return "\n".join(results) if results else "No matching notes found."
+
+
+# ── Class-based tool ─────────────────────────────────────────────────────
+# Same idea as @tool, but as a class. Useful when you need instance state,
+# custom validation, or more control.
+
+
+class WordCounterInput(BaseModel):
+    """Input schema — Pydantic validates the LLM's arguments automatically."""
+    text: str = Field(description="The text to count words in")
+
+
+class WordCounterTool(BaseTool):
+    """Count the number of words, characters, and sentences in a text."""
+
+    # These class attributes define how the LLM sees this tool:
+    name: str = "word_counter"
+    description: str = "Count words, characters, and sentences in a given text"
+    args_schema: type[BaseModel] = WordCounterInput
+
+    def _run(self, text: str) -> str:
+        """Sync implementation — required."""
+        words = len(text.split())
+        chars = len(text)
+        sentences = text.count(".") + text.count("!") + text.count("?")
+        return f"Words: {words}, Characters: {chars}, Sentences: {sentences}"
+
+
+# Create an instance — this is what you pass to the tools list
+word_counter = WordCounterTool()
