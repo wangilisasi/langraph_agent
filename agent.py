@@ -14,7 +14,16 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
-from tools import get_current_time, calculator, search_notes, word_counter
+from tools import (
+    web_search,
+    web_search_deep,
+    fetch_page,
+    get_current_datetime,
+    save_to_file,
+    read_file,
+    list_saved_files,
+    quick_answer,
+)
 
 # ── State ────────────────────────────────────────────────────────────────
 # This TypedDict defines the data that flows through every node.
@@ -29,20 +38,36 @@ class AgentState(TypedDict):
 # OpenRouter is OpenAI-compatible, so we reuse ChatOpenAI with a different
 # base_url and api_key. You can swap the model to any on OpenRouter:
 # https://openrouter.ai/models
-tools = [get_current_time, calculator, search_notes, word_counter]
+tools = [
+    web_search,
+    web_search_deep,
+    fetch_page,
+    get_current_datetime,
+    save_to_file,
+    read_file,
+    list_saved_files,
+    quick_answer,
+]
+
 llm = ChatOpenAI(
-    model="openai/gpt-5-nano",                              # OpenRouter model ID
+    model="openai/gpt-5-nano",                   # OpenRouter model ID
     base_url="https://openrouter.ai/api/v1",     # point to OpenRouter
     api_key=os.getenv("OPENROUTER_API_KEY"),      # use the OpenRouter key
     temperature=0,
 )
-llm_with_tools = llm.bind_tools(tools)          # let the LLM know about tools
+llm_with_tools = llm.bind_tools(tools)
 
 SYSTEM_PROMPT = SystemMessage(
     content=(
-        "You are a helpful assistant. "
-        "Use the available tools when they can help answer the user's question. "
-        "Always explain your reasoning briefly before giving a final answer."
+        "You are a research assistant. Your job is to help users find, "
+        "analyse, and organise information from the web.\n\n"
+        "Guidelines:\n"
+        "- Use web_search for general queries, web_search_deep when you need detailed content.\n"
+        "- Use quick_answer for simple factual questions.\n"
+        "- Use fetch_page when the user gives you a specific URL.\n"
+        "- Save important findings with save_to_file so the user can reference them later.\n"
+        "- Always cite your sources with URLs.\n"
+        "- Be concise but thorough."
     )
 )
 
