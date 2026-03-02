@@ -45,11 +45,15 @@ def main() -> None:
             print("Goodbye! 👋")
             break
 
-        result = agent.invoke({"messages": [{"role": "user", "content": user_input}]})
-        if VERBOSE:
-            print_steps(result)
-        else:
-            print_response(result)
+        try:
+            result = agent.invoke({"messages": [{"role": "user", "content": user_input}]})
+            if VERBOSE:
+                print_steps(result)
+            else:
+                print_response(result)
+        except Exception as e:
+            print(f"\n❌  Error: {str(e)}")
+            print("💡  Check your internet connection or API key.\n")
 
 
 if __name__ == "__main__":

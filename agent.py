@@ -54,6 +54,8 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",     # point to OpenRouter
     api_key=os.getenv("OPENROUTER_API_KEY"),      # use the OpenRouter key
     temperature=0,
+    max_retries=2,                               # Handle temporary network failures
+    timeout=30.0,                                # Don't hang forever
 )
 llm_with_tools = llm.bind_tools(tools)
 
