@@ -2,12 +2,10 @@
 
 import os
 import datetime
-import json
 import httpx
 from pathlib import Path
 
-from langchain_core.tools import tool, BaseTool
-from pydantic import BaseModel, Field
+from langchain_core.tools import tool
 from tavily import TavilyClient
 
 # ── Tavily client (initialised once) ─────────────────────────────────────
@@ -16,6 +14,28 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 # Directory where the agent can save research output
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    """Truncate text to a character limit with a clear suffix."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "... [truncated]"
+
+
+def _format_search_results(results: list[dict], content_key: str, max_chars: int | None = None) -> str:
+    """Format Tavily search results into a readable markdown-like string."""
+    formatted = []
+    for result in results:
+        content = result.get(content_key, result.get("content", ""))
+        if max_chars is not None:
+            content = _truncate_text(content, max_chars)
+        formatted.append(
+            f"**{result['title']}**\n"
+            f"URL: {result['url']}\n"
+            f"{content}\n"
+        )
+    return "\n---\n".join(formatted) if formatted else "No results found."
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -40,14 +60,7 @@ def web_search(query: str, max_results: int = 5) -> str:
             max_results=min(max_results, 10),
             search_depth="basic",
         )
-        results = []
-        for r in response.get("results", []):
-            results.append(
-                f"**{r['title']}**\n"
-                f"URL: {r['url']}\n"
-                f"{r['content']}\n"
-            )
-        return "\n---\n".join(results) if results else "No results found."
+        return _format_search_results(response.get("results", []), content_key="content")
     except Exception as e:
         return f"Search error: {e}"
 
@@ -69,18 +82,11 @@ def web_search_deep(query: str) -> str:
             search_depth="advanced",
             include_raw_content=True,
         )
-        results = []
-        for r in response.get("results", []):
-            content = r.get("raw_content", r["content"])
-            # Truncate to avoid overwhelming the context
-            if len(content) > 3000:
-                content = content[:3000] + "... [truncated]"
-            results.append(
-                f"**{r['title']}**\n"
-                f"URL: {r['url']}\n"
-                f"{content}\n"
-            )
-        return "\n---\n".join(results) if results else "No results found."
+        return _format_search_results(
+            response.get("results", []),
+            content_key="raw_content",
+            max_chars=3000,
+        )
     except Exception as e:
         return f"Deep search error: {e}"
 
@@ -159,37 +165,18 @@ def list_saved_files() -> str:
     return "\n".join(f"  - {f.name} ({f.stat().st_size} bytes)" for f in files)
 
 
-# ═════════════════════════════════════════════════════════════════════════
-#  CLASS-BASED TOOL  (BaseTool subclass — for comparison)
-# ═════════════════════════════════════════════════════════════════════════
+@tool
+def quick_answer(question: str) -> str:
+    """Get a direct, concise answer to a factual web question.
 
+    Use this for simple factual queries where you want one short answer
+    instead of a list of links.
 
-class QuickAnswerInput(BaseModel):
-    """Input for the Tavily Q&A endpoint."""
-    question: str = Field(description="A direct question to answer from the web")
-
-
-class QuickAnswerTool(BaseTool):
-    """Get a direct, concise answer to a factual question from the web.
-
-    Unlike web_search which returns multiple results, this returns a single
-    short answer — like a search engine's featured snippet.
+    Args:
+        question: The factual question to answer.
     """
-
-    name: str = "quick_answer"
-    description: str = (
-        "Get a direct short answer to a factual question from the web. "
-        "Best for simple factual questions like 'What is the population of Kenya?' "
-        "or 'Who won the 2024 Champions League?'"
-    )
-    args_schema: type[BaseModel] = QuickAnswerInput
-
-    def _run(self, question: str) -> str:
-        try:
-            response = tavily.qna_search(query=question)
-            return response if response else "No direct answer found."
-        except Exception as e:
-            return f"Quick answer error: {e}"
-
-
-quick_answer = QuickAnswerTool()
+    try:
+        response = tavily.qna_search(query=question)
+        return response if response else "No direct answer found."
+    except Exception as e:
+        return f"Quick answer error: {e}"
