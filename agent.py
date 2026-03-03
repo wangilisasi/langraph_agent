@@ -1,5 +1,6 @@
 """LangGraph agent built with explicit Nodes and Edges."""
 
+import atexit
 from typing import Annotated
 from typing_extensions import TypedDict
 
@@ -10,6 +11,7 @@ load_dotenv()
 import os
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AnyMessage, SystemMessage
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -116,4 +118,14 @@ graph.add_conditional_edges("chatbot", should_continue)  # chatbot → tools | E
 graph.add_edge("tools", "chatbot")            # after tools, loop back to chatbot
 
 # 3. Compile into a runnable
-agent = graph.compile()
+CHECKPOINT_DB_PATH = os.getenv("CHECKPOINT_DB_PATH", "output/agent_checkpoints.db")
+_checkpointer_cm = SqliteSaver.from_conn_string(CHECKPOINT_DB_PATH)
+checkpointer = _checkpointer_cm.__enter__()
+
+
+def _close_checkpointer() -> None:
+    _checkpointer_cm.__exit__(None, None, None)
+
+
+atexit.register(_close_checkpointer)
+agent = graph.compile(checkpointer=checkpointer)
