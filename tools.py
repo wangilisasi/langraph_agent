@@ -1,6 +1,7 @@
 """Tools for a research agent that can search the web, read pages, and save findings."""
 
 import os
+import sys
 import datetime
 import httpx
 from pathlib import Path
@@ -14,6 +15,13 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 # Directory where the agent can save research output
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+AUTO_APPROVE_FILE_WRITES = os.getenv("AUTO_APPROVE_FILE_WRITES", "").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 
 def _truncate_text(text: str, limit: int) -> str:
@@ -36,6 +44,37 @@ def _format_search_results(results: list[dict], content_key: str, max_chars: int
             f"{content}\n"
         )
     return "\n---\n".join(formatted) if formatted else "No results found."
+
+
+def _resolve_output_path(filename: str) -> Path:
+    """Resolve a filename inside output/ and block path traversal."""
+    base_dir = OUTPUT_DIR.resolve()
+    filepath = (OUTPUT_DIR / filename).resolve()
+    if filepath != base_dir and base_dir not in filepath.parents:
+        raise ValueError("Filename must stay within output/ directory")
+    return filepath
+
+
+def _approve_save(filename: str, content: str) -> tuple[bool, str]:
+    """Ask for confirmation before writing to disk."""
+    if AUTO_APPROVE_FILE_WRITES:
+        return True, ""
+
+    if not sys.stdin or not sys.stdin.isatty():
+        return False, (
+            "Save blocked: non-interactive session. "
+            "Set AUTO_APPROVE_FILE_WRITES=1 to allow automatic writes."
+        )
+
+    preview = _truncate_text(content, 400)
+    print("\n[Approval required] save_to_file")
+    print(f"- Target file: output/{filename}")
+    print("- Content preview:")
+    print(preview)
+    decision = input("Approve file write? [y/N]: ").strip().lower()
+    if decision in {"y", "yes"}:
+        return True, ""
+    return False, "Save cancelled by user."
 
 
 # ═════════════════════════════════════════════════════════════════════════
@@ -130,7 +169,11 @@ def save_to_file(filename: str, content: str) -> str:
         content: The text content to write.
     """
     try:
-        filepath = OUTPUT_DIR / filename
+        approved, reason = _approve_save(filename, content)
+        if not approved:
+            return reason
+
+        filepath = _resolve_output_path(filename)
         filepath.write_text(content, encoding="utf-8")
         return f"Saved to {filepath.resolve()}"
     except Exception as e:
@@ -145,7 +188,7 @@ def read_file(filename: str) -> str:
         filename: Name of the file to read.
     """
     try:
-        filepath = OUTPUT_DIR / filename
+        filepath = _resolve_output_path(filename)
         if not filepath.exists():
             return f"File not found: {filename}"
         content = filepath.read_text(encoding="utf-8")
