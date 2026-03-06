@@ -6,10 +6,22 @@ import uuid
 from agent import agent, CHECKPOINT_DB_PATH
 
 VERBOSE = False  # Default: show only the final answer (Perplexity-style)
+HIDE_VERBOSE_TOOL_RESULTS = {"web_search", "web_search_deep", "fetch_page"}
+
+
+def print_plan(result: dict) -> None:
+    """Print the planner output for the current turn."""
+    plan = result.get("plan", "")
+    if not plan:
+        return
+    print("\nPlan:")
+    print(plan)
+    print()
 
 
 def print_steps(result: dict) -> None:
     """Print every message in the conversation to see what the agent did."""
+    print_plan(result)
     messages = result.get("messages", [])
     for msg in messages:
         if msg.type == "human":
@@ -20,7 +32,11 @@ def print_steps(result: dict) -> None:
                 print(f"  🔧 Tool call: {tc['name']}({tc['args']})")
         elif msg.type == "tool":
             # The tool returned a result
-            print(f"  📎 Tool result [{msg.name}]: {msg.content}")
+            if msg.name in HIDE_VERBOSE_TOOL_RESULTS:
+                size = len(str(msg.content or ""))
+                print(f"  📎 Tool result [{msg.name}]: [hidden raw output, {size} chars]")
+            else:
+                print(f"  📎 Tool result [{msg.name}]: {msg.content}")
         elif msg.type == "ai" and msg.content:
             # Final answer
             print(f"\n🤖  {msg.content}\n")

@@ -10,7 +10,7 @@ load_dotenv()
 
 import os
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import AnyMessage, SystemMessage
+from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -32,8 +32,9 @@ from tools import (
 # `add_messages` is a reducer that appends new messages instead of replacing.
 
 
-class AgentState(TypedDict):
+class AgentState(TypedDict, total=False):
     messages: Annotated[list[AnyMessage], add_messages]
+    plan: str
 
 
 # ── Model ────────────────────────────────────────────────────────────────
@@ -75,6 +76,20 @@ SYSTEM_PROMPT = SystemMessage(
     )
 )
 
+PLANNER_PROMPT = SystemMessage(
+    content=(
+        "You are the planning layer for a research agent. Create a short execution "
+        "plan for the latest user request before the agent starts working.\n\n"
+        "Rules:\n"
+        "- Return 2 to 5 numbered steps.\n"
+        "- Mention which tool is likely useful when relevant.\n"
+        "- Prefer short, practical steps.\n"
+        "- If the request is simple, return a one-step plan.\n"
+        "- Do not answer the user directly.\n"
+        "- Do not use markdown headings or extra commentary."
+    )
+)
+
 
 # ── Nodes ────────────────────────────────────────────────────────────────
 # Each node is a function that receives the current state and returns
@@ -83,9 +98,42 @@ SYSTEM_PROMPT = SystemMessage(
 
 def chatbot(state: AgentState) -> AgentState:
     """Call the LLM. It may decide to invoke tools or reply directly."""
-    messages = [SYSTEM_PROMPT] + state["messages"]
+    messages = [SYSTEM_PROMPT]
+
+    plan = state.get("plan", "").strip()
+    if plan:
+        messages.append(
+            SystemMessage(
+                content=(
+                    "Execution plan for this turn:\n"
+                    f"{plan}\n\n"
+                    "Follow this plan flexibly. Update it mentally if new evidence appears, "
+                    "but do not expose the plan unless the user asks for it."
+                )
+            )
+        )
+
+    messages += state["messages"]
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
+
+
+def planner(state: AgentState) -> AgentState:
+    """Create a lightweight plan for the latest user request."""
+    latest_user_message = next(
+        (msg for msg in reversed(state["messages"]) if isinstance(msg, HumanMessage)),
+        None,
+    )
+
+    if latest_user_message is None:
+        return {"plan": "1. Respond directly using the available context."}
+
+    plan_response = llm.invoke([PLANNER_PROMPT, latest_user_message])
+    plan_text = (plan_response.content or "").strip()
+    if not plan_text:
+        plan_text = "1. Inspect the request and answer directly if no tool use is needed."
+
+    return {"plan": plan_text}
 
 
 # ToolNode automatically executes whichever tool the LLM requested.
@@ -109,11 +157,13 @@ def should_continue(state: AgentState) -> str:
 graph = StateGraph(AgentState)
 
 # 1. Add nodes
+graph.add_node("planner", planner)
 graph.add_node("chatbot", chatbot)
 graph.add_node("tools", tool_node)
 
 # 2. Add edges
-graph.add_edge(START, "chatbot")              # entry point
+graph.add_edge(START, "planner")              # entry point
+graph.add_edge("planner", "chatbot")        # plan first, then act
 graph.add_conditional_edges("chatbot", should_continue)  # chatbot → tools | END
 graph.add_edge("tools", "chatbot")            # after tools, loop back to chatbot
 
