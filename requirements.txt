@@ -1,9 +1,9 @@
-langgraph
-langgraph-checkpoint-sqlite
-langchain-openai
-langchain-core
-python-dotenv
-tavily-python
-httpx
+langgraph==1.0.8
+langgraph-checkpoint-sqlite==3.0.3
+langchain-openai==1.1.9
+langchain-core==1.2.13
+python-dotenv==1.2.1
+tavily-python==0.7.21
+httpx==0.28.1
 beautifulsoup4
 
