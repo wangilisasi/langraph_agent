@@ -1,0 +1,9 @@
+langgraph
+langgraph-checkpoint-sqlite
+langchain-openai
+langchain-core
+python-dotenv
+tavily-python
+httpx
+beautifulsoup4
+
