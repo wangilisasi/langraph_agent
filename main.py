@@ -44,7 +44,7 @@ def main() -> None:
 
         try:
             result = agent.invoke(
-                {"messages": [{"role": "user", "content": user_input}]},
+                {"messages": [HumanMessage(content=user_input)]},
                 config={"configurable": {"thread_id": thread_id}},
             )
 

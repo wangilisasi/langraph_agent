@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+from pydantic import SecretStr
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -51,11 +52,13 @@ tools = [
     search_local_documents,
 ]
 
+openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+
 llm = ChatOpenAI(
     # model="openai/gpt-5-nano",
     model="moonshotai/kimi-k2.5",                   # OpenRouter model ID
     base_url="https://openrouter.ai/api/v1",     # point to OpenRouter
-    api_key=os.getenv("OPENROUTER_API_KEY"),      # use the OpenRouter key
+    api_key=SecretStr(openrouter_api_key) if openrouter_api_key else None,  # use the OpenRouter key
     temperature=0,
     max_retries=2,                               # Handle temporary network failures
     timeout=30.0,                                # Don't hang forever
@@ -120,15 +123,17 @@ def chatbot(state: AgentState) -> AgentState:
             )
         )
 
-    messages += state["messages"]
+    state_messages = state.get("messages", [])
+    messages += state_messages
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
 
 
 def planner(state: AgentState) -> AgentState:
     """Create a lightweight plan for the latest user request."""
+    state_messages = state.get("messages", [])
     latest_user_message = next(
-        (msg for msg in reversed(state["messages"]) if isinstance(msg, HumanMessage)),
+        (msg for msg in reversed(state_messages) if isinstance(msg, HumanMessage)),
         None,
     )
 
@@ -136,7 +141,8 @@ def planner(state: AgentState) -> AgentState:
         return {"plan": "1. Respond directly using the available context."}
 
     plan_response = llm.invoke([PLANNER_PROMPT, latest_user_message])
-    plan_text = (plan_response.content or "").strip()
+    plan_content = plan_response.content
+    plan_text = plan_content.strip() if isinstance(plan_content, str) else ""
     if not plan_text:
         plan_text = "1. Inspect the request and answer directly if no tool use is needed."
 
@@ -154,8 +160,12 @@ tool_node = ToolNode(tools=tools)
 
 def should_continue(state: AgentState) -> str:
     """Route to 'tools' if the last message has tool calls, else 'end'."""
-    last_message = state["messages"][-1]
-    if last_message.tool_calls:
+    state_messages = state.get("messages", [])
+    if not state_messages:
+        return END
+
+    last_message = state_messages[-1]
+    if getattr(last_message, "tool_calls", None):
         return "tools"
     return END
 
