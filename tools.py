@@ -10,6 +10,10 @@ from urllib.parse import urlparse
 import httpx
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tavily import TavilyClient
 
 # Tavily client (initialized once)
@@ -18,6 +22,46 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 # Directory where the agent can save research output
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
+
+# Directory where user can put private documents for RAG
+DOCS_DIR = Path("docs")
+DOCS_DIR.mkdir(exist_ok=True)
+
+# Global variables for the vector store
+_embeddings = None
+_vector_store = None
+
+def _get_or_create_vector_store():
+    """Load documents from docs/ directory and index them using FAISS."""
+    global _embeddings, _vector_store
+    
+    if _vector_store is not None:
+        return _vector_store
+        
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        
+    docs = []
+    if DOCS_DIR.exists():
+        for file in DOCS_DIR.glob("**/*"):
+            try:
+                if file.suffix.lower() == ".txt":
+                    loader = TextLoader(str(file), encoding="utf-8")
+                    docs.extend(loader.load())
+                elif file.suffix.lower() == ".pdf":
+                    loader = PyPDFLoader(str(file))
+                    docs.extend(loader.load())
+            except Exception as e:
+                print(f"Warning: Failed to load {file.name}: {e}")
+                
+    if not docs:
+        return None
+        
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splits = text_splitter.split_documents(docs)
+    
+    _vector_store = FAISS.from_documents(splits, _embeddings)
+    return _vector_store
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -283,4 +327,36 @@ def run_terminal_command(command: str) -> str:
         return f"Error: Command '{command}' timed out after 15 seconds."
     except Exception as e:
         return f"Error executing command: {e}"
+
+
+@tool
+def search_local_documents(query: str) -> str:
+    """Search the user's local documents (PDFs, TXT) for information.
+    
+    Use this when the user asks questions about their own files, context, or data.
+    
+    Args:
+        query: The search query to look for in the documents.
+    """
+    try:
+        vs = _get_or_create_vector_store()
+        if not vs:
+            return "No local documents found in the docs/ directory. Please tell the user to put .txt or .pdf files there."
+            
+        results = vs.similarity_search_with_score(query, k=3)
+        if not results:
+            return "No relevant information found in local documents."
+            
+        output_blocks = [f"Found {len(results)} relevant passages from local documents:"]
+        for idx, (doc, score) in enumerate(results, 1):
+            source = Path(doc.metadata.get("source", "Unknown")).name
+            page = doc.metadata.get("page", "")
+            page_info = f" (Page {page})" if page else ""
+            
+            content = _normalize_text(doc.page_content)
+            output_blocks.append(f"[{idx}] Source: {source}{page_info}\nExcerpt: {content}")
+            
+        return "\n\n---\n\n".join(output_blocks)
+    except Exception as e:
+        return f"Error searching documents: {e}"
 

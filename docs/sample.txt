@@ -1,0 +1,7 @@
+# Project Information
+This project is an advanced AI agent built with LangGraph. 
+It features web search capabilities, a Python code execution environment, and terminal command integration.
+The creator of this project is a developer who values minimalist setup and fast execution.
+
+# Secret Code
+The secret project codename is "OmegaProtocol-2026".

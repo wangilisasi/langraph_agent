@@ -6,4 +6,8 @@ python-dotenv==1.2.1
 tavily-python==0.7.21
 httpx==0.28.1
 beautifulsoup4
-
+langchain-community
+faiss-cpu
+pypdf
+langchain-huggingface
+sentence-transformers
