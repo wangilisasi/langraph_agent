@@ -3,6 +3,7 @@
 import datetime
 import os
 import re
+import subprocess
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -210,3 +211,76 @@ def read_file(filename: str) -> str:
         return content
     except Exception as e:
         return f"Error reading file: {e}"
+
+
+@tool
+def run_python_code(code: str) -> str:
+    """Run Python code locally and return the output (stdout/stderr).
+
+    Use this when you need to calculate math, analyze data, process JSON,
+    or do any programming task to get the answer. 
+
+    Args:
+        code: A string containing valid Python code. You can print() results to see them.
+    """
+    script_path = OUTPUT_DIR / "temp_script.py"
+    try:
+        script_path.write_text(code, encoding="utf-8")
+        
+        result = subprocess.run(
+            ["python", str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=10  # Prevent infinite loops
+        )
+        
+        output = result.stdout
+        if result.stderr:
+            output += f"\nErrors:\n{result.stderr}"
+            
+        if not output.strip():
+            return "Code executed successfully but returned no output. Did you forget to print()?"
+            
+        return _truncate_text(output, 2000)
+    except subprocess.TimeoutExpired:
+        return "Error: Code execution timed out after 10 seconds."
+    except Exception as e:
+        return f"Error executing code: {e}"
+    finally:
+        if script_path.exists():
+            script_path.unlink()  # Clean up the temp file
+
+
+@tool
+def run_terminal_command(command: str) -> str:
+    """Run a terminal/command line prompt natively on the computer.
+
+    Use this when you need to run things like `dir`, `git status`, system checks, 
+    or any other native OS commands. Note that it runs on a Windows machine.
+
+    Args:
+        command: The terminal command to execute.
+    """
+    try:
+        # We use shell=True to run standard shell commands
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=15,  # Prevent infinite hangs
+        )
+        
+        output = result.stdout
+        if result.stderr:
+            output += f"\n[Errors/Warnings]:\n{result.stderr}"
+            
+        if not output.strip():
+            return f"Command '{command}' executed successfully but returned no output."
+            
+        return _truncate_text(output, 2000)
+    except subprocess.TimeoutExpired:
+        return f"Error: Command '{command}' timed out after 15 seconds."
+    except Exception as e:
+        return f"Error executing command: {e}"
+

@@ -12,21 +12,17 @@ def extract_last_ai_response(result: dict) -> str:
     return ""
 
 
-def extract_tools_called(result: dict) -> list[str]:
-    """Return deduplicated tool names called in this turn."""
+def extract_tool_calls(result: dict) -> list[dict]:
+    """Return all tool calls made in this turn."""
     messages = result.get("messages", [])
-    tool_names: list[str] = []
-    seen: set[str] = set()
-
+    tool_calls = []
+    
     for msg in messages:
         if msg.type == "ai" and msg.tool_calls:
             for tc in msg.tool_calls:
-                name = tc.get("name")
-                if name and name not in seen:
-                    tool_names.append(name)
-                    seen.add(name)
+                tool_calls.append(tc)
 
-    return tool_names
+    return tool_calls
 
 
 def main() -> None:
@@ -52,10 +48,23 @@ def main() -> None:
                 config={"configurable": {"thread_id": thread_id}},
             )
 
-            # Show which tools were called (if any)
-            tool_names = extract_tools_called(result)
-            if tool_names:
-                print("Tools:", ", ".join(tool_names))
+            # Show which tools were called and their arguments
+            t_calls = extract_tool_calls(result)
+            if t_calls:
+                print("Tools Used: ")
+                for tc in t_calls:
+                    name = tc.get("name")
+                    args = tc.get("args", {})
+                    print(f"- {name}")
+                    for key, val in args.items():
+                        # If the value is multiline (like python code), format it nicely
+                        if isinstance(val, str) and "\n" in val:
+                            print(f"  {key}:")
+                            for line in val.split("\n"):
+                                print(f"    {line}")
+                        else:
+                            print(f"  {key}: {val}")
+                print()
 
             # Show the final answer
             response = extract_last_ai_response(result)
