@@ -3,7 +3,6 @@
 import datetime
 import os
 import re
-import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -18,13 +17,6 @@ tavily = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 # Directory where the agent can save research output
 OUTPUT_DIR = Path("output")
 OUTPUT_DIR.mkdir(exist_ok=True)
-
-AUTO_APPROVE_FILE_WRITES = os.getenv("AUTO_APPROVE_FILE_WRITES", "").lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -49,8 +41,8 @@ def _normalize_text(text: str) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
-def _format_search_results(results: list[dict], content_key: str, max_chars: int | None = None) -> str:
-    """Format Tavily search results with explicit numbered citations."""
+def _format_search_results(results: list[dict]) -> str:
+    """Format Tavily search results with numbered citations."""
     if not results:
         return "No results found."
 
@@ -61,10 +53,8 @@ def _format_search_results(results: list[dict], content_key: str, max_chars: int
         title = result.get("title") or "Untitled result"
         url = result.get("url") or ""
 
-        content = result.get(content_key, result.get("content", "")) or ""
+        content = result.get("content", "") or ""
         content = _normalize_text(content)
-        if max_chars is not None:
-            content = _truncate_text(content, max_chars)
         if not content:
             content = "(No excerpt returned.)"
 
@@ -91,28 +81,6 @@ def _resolve_output_path(filename: str) -> Path:
     return filepath
 
 
-def _approve_save(filename: str, content: str) -> tuple[bool, str]:
-    """Ask for confirmation before writing to disk."""
-    if AUTO_APPROVE_FILE_WRITES:
-        return True, ""
-
-    if not sys.stdin or not sys.stdin.isatty():
-        return False, (
-            "Save blocked: non-interactive session. "
-            "Set AUTO_APPROVE_FILE_WRITES=1 to allow automatic writes."
-        )
-
-    preview = _truncate_text(content, 400)
-    print("\n[Approval required] save_to_file")
-    print(f"- Target file: output/{filename}")
-    print("- Content preview:")
-    print(preview)
-    decision = input("Approve file write? [y/N]: ").strip().lower()
-    if decision in {"y", "yes"}:
-        return True, ""
-    return False, "Save cancelled by user."
-
-
 def _is_valid_http_url(url: str) -> bool:
     """Validate that a URL has an HTTP(S) scheme and a hostname."""
     try:
@@ -126,7 +94,6 @@ def _html_to_text(html: str) -> str:
     """Convert HTML into readable plain text."""
     soup = BeautifulSoup(html, "html.parser")
 
-    # Remove non-content elements before extracting text.
     for tag in soup(["script", "style", "noscript", "svg", "iframe", "canvas"]):
         tag.decompose()
 
@@ -150,35 +117,9 @@ def web_search(query: str, max_results: int = 5) -> str:
             max_results=min(max_results, 10),
             search_depth="basic",
         )
-        return _format_search_results(response.get("results", []), content_key="content")
+        return _format_search_results(response.get("results", []))
     except Exception as e:
         return f"Search error: {e}"
-
-
-@tool
-def web_search_deep(query: str) -> str:
-    """Perform an in-depth web search with full content extraction.
-
-    Use this when you need detailed information. It is slower but richer
-    than web_search.
-
-    Args:
-        query: The search query.
-    """
-    try:
-        response = tavily.search(
-            query=query,
-            max_results=3,
-            search_depth="advanced",
-            include_raw_content=True,
-        )
-        return _format_search_results(
-            response.get("results", []),
-            content_key="raw_content",
-            max_chars=3000,
-        )
-    except Exception as e:
-        return f"Deep search error: {e}"
 
 
 @tool
@@ -245,10 +186,6 @@ def save_to_file(filename: str, content: str) -> str:
         content: The text content to write.
     """
     try:
-        approved, reason = _approve_save(filename, content)
-        if not approved:
-            return reason
-
         filepath = _resolve_output_path(filename)
         filepath.write_text(content, encoding="utf-8")
         return f"Saved to {filepath.resolve()}"
@@ -273,43 +210,3 @@ def read_file(filename: str) -> str:
         return content
     except Exception as e:
         return f"Error reading file: {e}"
-
-
-@tool
-def list_saved_files() -> str:
-    """List all files in the output/ directory."""
-    files = list(OUTPUT_DIR.iterdir())
-    if not files:
-        return "No files saved yet."
-    return "\n".join(f"  - {f.name} ({f.stat().st_size} bytes)" for f in files)
-
-
-@tool
-def quick_answer(question: str) -> str:
-    """Return a concise answer and citation for simple factual questions.
-
-    Args:
-        question: The factual question to answer.
-    """
-    try:
-        response = tavily.search(query=question, max_results=1, search_depth="basic")
-        results = response.get("results", [])
-        if results:
-            top = results[0]
-            excerpt = _normalize_text(top.get("content", ""))
-            excerpt = _truncate_text(excerpt, 1000) if excerpt else "No short excerpt returned."
-            title = top.get("title") or "Top result"
-            url = top.get("url") or ""
-            return (
-                f"Answer candidate from top source ({title}):\n"
-                f"{excerpt}\n\n"
-                f"Source: {url}"
-            )
-
-        fallback = tavily.qna_search(query=question)
-        if fallback:
-            return f"{fallback}\n\nSource: Tavily quick answer (no URL provided)."
-        return "No direct answer found."
-    except Exception as e:
-        return f"Quick answer error: {e}"
-
