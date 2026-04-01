@@ -11,3 +11,5 @@ faiss-cpu
 pypdf
 langchain-huggingface
 sentence-transformers
+fastapi
+uvicorn[standard]
